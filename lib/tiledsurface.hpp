@@ -43,7 +43,7 @@ public:
     }
     atomic++;
   }
-  void end_atomic() {
+  PyObject* end_atomic() {
     assert(atomic > 0);
     atomic--;
     if (atomic == 0) {
@@ -55,10 +55,10 @@ public:
         PyObject* res;
         // OPTIMIZE: send a list tiles for minimal compositing? (but profile the code first)
         res = PyObject_CallMethod(self, "notify_observers", "(iiii)", bbox.x, bbox.y, bbox.w, bbox.h);
-        if (!res) printf("Python exception during notify_observers! FIXME: Traceback will not be accurate.\n");
-        Py_DECREF(res);
+        if (!res) return NULL;
       }
     }
+    Py_RETURN_NONE;
   }
 
   uint16_t * get_tile_memory(int tx, int ty, bool readonly) {
@@ -68,9 +68,10 @@ public:
         return tileMemory[i].rgba_p;
       }
     }
+    if (PyErr_Occurred()) return NULL;
     PyObject* rgba = PyObject_CallMethod(self, "get_tile_memory", "(iii)", tx, ty, readonly);
     if (rgba == NULL) {
-      printf("Python exception during get_tile_memory()! The next traceback might be wrong.\n");
+      printf("Python exception during get_tile_memory()!\n");
       return NULL;
     }
 #ifdef HEAVY_DEBUG
