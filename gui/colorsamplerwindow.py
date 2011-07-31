@@ -4,6 +4,7 @@ from math import pi, sin, cos, sqrt, atan2, ceil
 import struct
 import cairo
 import windowing
+import stock
 from layout import ElasticExpander
 from lib.helpers import rgb_to_hsv, hsv_to_rgb, clamp
 from gettext import gettext as _
@@ -665,7 +666,7 @@ class CircleSelector(GColorSelector):
         cr.stroke()
         cr.arc(self.x0,self.y0, self.r3, 0, 2*pi)
         cr.stroke()
-        
+
     def draw_circle(self, w, h):
         if self.circle_img:
             return self.circle_img
@@ -806,7 +807,7 @@ class HSelector(VSelector):
         h,s,v = self.hsv
         h = clamp(x/self.w, 0.0, 1.0)
         return (h,s,v), True
-    
+
     def draw(self,w, event):
         if not self.window:
             return
@@ -846,7 +847,7 @@ class RSelector(VSelector):
         r,g,b = self.color
         r = clamp(x/self.w, 0.0, 1.0)
         return (r,g,b), False
-    
+
     def draw(self,w, event):
         if not self.window:
             return
@@ -861,7 +862,7 @@ class GSelector(VSelector):
         r,g,b = self.color
         g = clamp(x/self.w, 0.0, 1.0)
         return (r,g,b), False
-    
+
     def draw(self,w, event):
         if not self.window:
             return
@@ -876,7 +877,7 @@ class BSelector(VSelector):
         r,g,b = self.color
         b = clamp(x/self.w, 0.0, 1.0)
         return (r,g,b), False
-    
+
     def draw(self,w, event):
         if not self.window:
             return
@@ -920,7 +921,7 @@ class HSVSelector(gtk.VBox):
         self.vspin = vspin = make_spin(0,100, self.val_change)
         vbox.pack_start(vsel, expand=True)
         vbox.pack_start(vspin, expand=False)
-        
+
         self.pack_start(hbox, expand=False)
         self.pack_start(sbox, expand=False)
         self.pack_start(vbox, expand=False)
@@ -991,7 +992,7 @@ class RGBSelector(gtk.VBox):
         self.bspin = bspin = make_spin(0,255, self.b_change)
         bbox.pack_start(bsel, expand=True)
         bbox.pack_start(bspin, expand=False)
-        
+
         self.pack_start(rbox, expand=False)
         self.pack_start(gbox, expand=False)
         self.pack_start(bbox, expand=False)
@@ -1181,7 +1182,7 @@ class Selector(gtk.VBox):
 
 class ToolWidget (Selector):
 
-    tool_widget_title = _("Color Sampler")
+    stock_id = stock.TOOL_COLOR_SAMPLER
 
     def __init__(self, app):
         Selector.__init__(self, app)

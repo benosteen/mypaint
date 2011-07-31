@@ -25,7 +25,7 @@ class LayoutManager:
     """Keeps track of tool positions, and main window state.
     """
 
-    def __init__(self, app, factory, factory_opts=[], prefs=None):
+    def __init__(self, factory, factory_opts=[], prefs=None):
         """Constructor.
 
             "prefs"
@@ -43,18 +43,17 @@ class LayoutManager:
                    1. (None,)
                    2. (window,)
                    3. (widget,)
-                   4. (tool_widget, title_str)
+                   4. (tool_widget, stock_id)
 
                 Form 1 indicates that no matching widget could be found.
                 Form 2 should be used for floating dialog windows, popup
-                windowrs and similar, or for "main-window". Form 3 is
+                windows and similar, or for "main-window". Form 3 is
                 expected when the "role" parameter is "main-widget"; the
                 returned widgets are packed into the main window.
         """
 
         if prefs is None:
             prefs = {}
-        self.app = app
         self.prefs = prefs
         self.window_group = gtk.WindowGroup()
         self.factory = factory
@@ -64,7 +63,8 @@ class LayoutManager:
         self.subwindows = {}   # {role: <gtk.Window>}
         self.main_window = None
         self.saved_user_tools = []
-        self.sidebar_state_observers = []
+        self.tool_visibility_observers = []
+        self.subwindow_visibility_observers = []
 
     def set_main_window_title(self, title):
         """Set the title for the main window.
@@ -101,6 +101,9 @@ class LayoutManager:
                     self.widgets[role] = widget
                     widget.set_role(role)
                     widget.set_transient_for(self.main_window)
+                    cb = self.notify_subwindow_visibility_observers
+                    widget.connect("show", cb, True)
+                    widget.connect("hide", cb, False)
                     return widget
                 elif isinstance(widget, gtk.Widget):
                     title = result[1]
@@ -117,9 +120,8 @@ class LayoutManager:
     def get_subwindow_by_role(self, role):
         """Returns the managed subwindow for a given role, or None
         """
-        if self.get_widget_by_role(role):
-            return self.subwindows.get(role, None)
-        return None
+        self.get_widget_by_role(role)
+        return self.subwindows.get(role, None)
 
     def get_tool_by_role(self, role):
         """Returns the tool wrapper for a given role.
@@ -127,16 +129,14 @@ class LayoutManager:
         Only valid for roles for which a corresponding packable widget was
         created by the factory method.
         """
-        newly_loaded = role not in self.widgets
-        _junk = self.get_widget_by_role(role)
-        tool = self.tools.get(role, None)
-        if tool is not None and newly_loaded:
-            hidden = self.prefs.get(tool.role, {}).get("hidden", True)
-            floating = self.prefs.get(tool.role, {}).get("floating", False)
-            tool.set_floating(floating)
-            tool.set_hidden(hidden)
-            # XXX move the above to get_widget_by_role()?
-        return tool
+        self.get_widget_by_role(role)
+        return self.tools.get(role, None)
+
+    def get_window_hidden_by_role(self, role, default=True):
+        return self.prefs.get(role, {}).get("hidden", default)
+
+    def get_window_floating_by_role(self, role, default=False):
+        return self.prefs.get(role, {}).get("floating", default)
 
     def get_tools_in_sbindex_order(self):
         """Lists all loaded tools in order of ther sbindex setting.
@@ -158,17 +158,12 @@ class LayoutManager:
     def toggle_user_tools(self, on=None):
         """Temporarily toggle the user's chosen tools on or off.
         """
-        if on is None:
-            on = False
-            off = False
-        else:
-            off = not on
-        if on or self.saved_user_tools:
+        if on:
             for tool in self.saved_user_tools:
                 tool.set_hidden(False, temporary=True)
                 tool.set_floating(tool.floating)
             self.saved_user_tools = []
-        elif off or not self.saved_user_tools:
+        else:
             for tool in self.get_tools_in_sbindex_order():
                 if tool.hidden:
                     continue
@@ -205,6 +200,14 @@ class LayoutManager:
 
         # Present the main window for consistency with the toggle action.
         gobject.idle_add(self.main_window.present)
+
+    def notify_tool_visibility_observers(self, *args, **kwargs):
+        for func in self.tool_visibility_observers:
+            func(*args, **kwargs)
+
+    def notify_subwindow_visibility_observers(self, *args, **kwargs):
+        for func in self.subwindow_visibility_observers:
+            func(*args, **kwargs)
 
 
 class ElasticContainer:
@@ -470,10 +473,10 @@ class MainWindow (WindowWithSavedPosition):
         self.main_widget = None; self.init_main_widget()
         self.sidebar = Sidebar(layout_manager)
         self.hpaned = gtk.HPaned()
-        self.layout_vbox = gtk.VBox()
         self.hpaned_position_loaded = False
         self.hpaned.pack1(self.main_widget, True, False)
         self.hpaned.pack2(self.sidebar, False, False)
+        self.layout_vbox = gtk.VBox()
         if self.menubar is not None:
             self.layout_vbox.pack_start(self.menubar, False, False)
         if self.toolbar is not None:
@@ -581,7 +584,7 @@ class SmallImageButton (gtk.Button):
         self.set_size_request(w+4, h+4)
 
 
-class ToolResizeGrip (gtk.DrawingArea): 
+class ToolResizeGrip (gtk.DrawingArea):
     """A draggable bar for resizing a Tool vertically."""
 
     AREA_LEFT = 0
@@ -618,7 +621,7 @@ class ToolResizeGrip (gtk.DrawingArea):
             | gdk.LEAVE_NOTIFY_MASK | gdk.POINTER_MOTION_MASK
         self.set_events(mask)
         self.resize = None
-    
+
     def on_configure_event(self, widget, event):
         self.width = event.width
         self.height = event.height
@@ -664,12 +667,12 @@ class ToolResizeGrip (gtk.DrawingArea):
             self.resize = event.x_root, event.y_root, w, h, \
                           min_w, min_h, max_w, max_h
             self.grab_add()
-    
+
     def on_button_release_event(self, widget, event):
         self.resize = None
         self.grab_remove()
         self.window.set_cursor(None)
-    
+
     def get_cursor(self, area):
         if self.tool.floating:
             cursor = self.floating_cursor_map.get(area)
@@ -692,13 +695,13 @@ class ToolResizeGrip (gtk.DrawingArea):
         w = -1   # constrained horizontally anyway, better to not care
         self.tool.set_size_request(w, h)
         self.tool.queue_resize()
-    
+
     def on_leave_notify_event(self, widget, event):
         self.window.set_cursor(None)
 
 
 class FoldOutArrow (gtk.Button):
-    
+
     TEXT_EXPANDED = _("Collapse")
     TEXT_COLLAPSED = _("Expand")
 
@@ -712,7 +715,7 @@ class FoldOutArrow (gtk.Button):
         self.set_tooltip_text(self.TEXT_EXPANDED)
         self.add(self.arrow)
         self.connect("clicked", self.on_click)
-    
+
     def on_click(self, *a):
         self.tool.set_rolled_up(not self.tool.rolled_up)
 
@@ -732,16 +735,17 @@ class ToolDragHandle (gtk.EventBox):
     min_drag_distance = 10
     spacing = 2
 
-    def __init__(self, tool, label_text):
+    def __init__(self, tool, stock_id):
         gtk.EventBox.__init__(self)
+        stock_info = gtk.stock_lookup(stock_id)
+        self.stock_id = stock_id
+        label_text = stock_info[1]
         self.tool = tool
         self.frame = frame = gtk.Frame()
         frame.set_shadow_type(gtk.SHADOW_OUT)
         self.hbox = hbox = gtk.HBox(spacing=self.spacing)
         self.hbox.set_border_width(self.spacing)
-        self.img = gtk.Image()
-        pixbuf = getattr(self.tool.layout_manager.app.pixmaps, "tool_%s" % self.tool.role)
-        self.img.set_from_pixbuf(pixbuf)
+        self.img = gtk.image_new_from_stock(stock_id, gtk.ICON_SIZE_BUTTON)
         hbox.pack_start(self.img, False, False)
         self.roll_up_button = FoldOutArrow(self.tool)
         hbox.pack_start(self.roll_up_button, False, False)
@@ -863,7 +867,7 @@ class ToolDragHandle (gtk.EventBox):
     def on_leave_notify_event(self, widget, event):
         self.window.set_cursor(None)
         self.set_state(gtk.STATE_NORMAL)
-        
+
     def on_enter_notify_event(self, widget, event):
         self.window.set_cursor(gdk.Cursor(gdk.HAND2))
         #if not self.in_reposition_drag:
@@ -979,13 +983,13 @@ class Tool (gtk.VBox, ElasticContainer):
         gtk.VBox.__init__(self)
         ElasticContainer.__init__(self)
         self.role = role
+        self.widget = widget
         self.layout_manager = layout_manager
         self.handle = ToolDragHandle(self, gloss)
         self.pack_start(self.handle, False, False)
         self.widget_frame = frame = gtk.Frame()
         frame.set_shadow_type(gtk.SHADOW_IN)
         frame.add(widget)
-        self.widget = widget
         self.pack_start(frame, True, True)
         self.resize_grip = ToolResizeGrip(self)
         self.resize_grip_frame = gtk.Frame()
@@ -1000,7 +1004,7 @@ class Tool (gtk.VBox, ElasticContainer):
         self.rolled_up = False
         self.rolled_up_prev_size = None
         self.connect("size-allocate", self.on_size_allocate)
-    
+
     def on_size_allocate(self, widget, allocation):
         if self.rolled_up:
             return
@@ -1052,7 +1056,7 @@ class Tool (gtk.VBox, ElasticContainer):
         """
         self.handle.set_floating(floating)
         self.set_rolled_up(False)
-        
+
         # Clear any explicit size requests so that the frame is able to adopt a
         # natural size again.
         for wid in (self.handle, self):
@@ -1111,6 +1115,8 @@ class Tool (gtk.VBox, ElasticContainer):
             self.set_floating(self.floating)
             # Which will restore it to the correct state
         self.hidden = hidden
+        lm.notify_tool_visibility_observers(role=self.role, active=not hidden,
+                                            temporary=temporary)
         if not temporary:
             lm.prefs[role]["hidden"] = hidden
         if lm.main_window.sidebar.is_empty():
@@ -1152,7 +1158,7 @@ class Tool (gtk.VBox, ElasticContainer):
 
     def on_close_button_pressed(self, window):
         self.set_hidden(True)
-    
+
     def on_snap_button_pressed(self, window):
         # Mouse position
         display = gdk.display_get_default()
@@ -1216,7 +1222,7 @@ class ToolDragPreviewWindow (gtk.Window):
     def show_all(self):
         gtk.Window.show_all(self)
         self.window.move_resize(0, 0, 1, 1)
-    
+
     def on_map_event(self, window, event):
         owner_win = self.owner.get_toplevel()
         self.set_transient_for(owner_win)
@@ -1234,7 +1240,7 @@ class ToolDragPreviewWindow (gtk.Window):
             self.bg.draw_points(gc, [(0,0), (1,1)])
             self.window.set_back_pixmap(self.bg, False)
             self.window.clear()
-    
+
     def on_configure_event(self, window, event):
         # Shape the window
         w = event.width
@@ -1257,7 +1263,7 @@ class ToolDragPreviewWindow (gtk.Window):
 
 
 class ToolDragState:
-    
+
     """Manages visual state during tool repositioning.
 
     The resize grip can largely take care of itself, and deploy its own grabs.
@@ -1466,21 +1472,6 @@ class Sidebar (gtk.EventBox):
     def is_empty(self):
         """True if there are no tools in the sidebar."""
         return self.num_tools() == 0
-
-    def show_all(self):
-        for func in self.layout_manager.sidebar_state_observers:
-            func(visible=True)
-        gtk.EventBox.show_all(self)
-
-    def show(self):
-        for func in self.layout_manager.sidebar_state_observers:
-            func(visible=True)
-        gtk.EventBox.show(self)
-
-    def hide(self):
-        for func in self.layout_manager.sidebar_state_observers:
-            func(visible=False)
-        gtk.EventBox.hide(self)
 
     def insertion_point_at_pointer(self):
         """Returns where in the sidebar a tool would be inserted.

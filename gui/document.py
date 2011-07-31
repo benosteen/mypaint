@@ -19,9 +19,11 @@ import lib.document
 from lib import backgroundsurface, command, helpers, layer
 import tileddrawwidget, stategroup
 from brushmanager import ManagedBrush
+import stock
 
 
 class Document(object):
+
     def __init__(self, app):
         self.app = app
         self.model = lib.document.Document(self.app.brush)
@@ -64,8 +66,12 @@ class Document(object):
     def init_actions(self):
         # name, stock id, label, accelerator, tooltip, callback
         actions = [
-            ('Undo',               gtk.STOCK_UNDO, _('Undo'), 'Z', None, self.undo_cb),
-            ('Redo',               gtk.STOCK_REDO, _('Redo'), 'Y', None, self.redo_cb),
+            ('Undo', gtk.STOCK_UNDO, _('Undo'), 'Z',
+                _("Undo the last action"),
+                self.undo_cb),
+            ('Redo', gtk.STOCK_REDO, _('Redo'), 'Y',
+                _("Redo the last undo action"),
+                self.redo_cb),
 
             ('Brighter',     None, _('Brighter'), None, None, self.brighter_cb),
             ('Smaller',      None, _('Smaller'), 'd', None, self.brush_smaller_cb),
@@ -99,35 +105,52 @@ class Document(object):
 
             ('ShortcutsMenu', None, _('Shortcuts')),
 
-            ('ResetView',   gtk.STOCK_ZOOM_FIT, _('Reset and Center'), 'F12', None, self.reset_view_cb),
+            ('ResetView',   gtk.STOCK_ZOOM_FIT, _('Reset and Center'), 'F12',
+                _("Reset Zoom, Rotation and Mirroring, and recenter the document"),
+                self.reset_view_cb),
             ('ResetMenu',   None, _('Reset')),
-                ('ResetZoom',   gtk.STOCK_ZOOM_100, _('Zoom'), None, None, self.reset_view_cb),
-                ('ResetRotation',   None, _('Rotation'), None, None, self.reset_view_cb),
-                ('ResetMirror', None, _('Mirror'), None, None, self.reset_view_cb),
-            ('ZoomIn',       gtk.STOCK_ZOOM_IN, _('Zoom In (at cursor)'), 'period', None, self.zoom_cb),
-            ('ZoomOut',      gtk.STOCK_ZOOM_OUT, _('Zoom Out'), 'comma', None, self.zoom_cb),
-            ('RotateLeft',   None, _('Rotate Counterclockwise'), '<control>Left', None, self.rotate_cb),
-            ('RotateRight',  None, _('Rotate Clockwise'), '<control>Right', None, self.rotate_cb),
-            ('MirrorHorizontal', None, _('Mirror Horizontal'), 'i', None, self.mirror_horizontal_cb),
-            ('MirrorVertical', None, _('Mirror Vertical'), 'u', None, self.mirror_vertical_cb),
+            ('ResetZoom',   gtk.STOCK_ZOOM_100, _('Zoom'), None, None, self.reset_view_cb),
+            ('ResetRotation',   None, _('Rotation'), None, None, self.reset_view_cb),
+            ('ResetMirror', None, _('Mirror'), None, None, self.reset_view_cb),
+            ('ZoomIn',       gtk.STOCK_ZOOM_IN, _('Zoom In'), 'period', 
+                _("Increase magnification"), self.zoom_cb),
+            ('ZoomOut',      gtk.STOCK_ZOOM_OUT, _('Zoom Out'), 'comma',
+                _("Decrease magnification"), self.zoom_cb),
+            ('RotateLeft',   stock.ROTATE_LEFT, None, None,
+                _("Rotate the view left"),
+                self.rotate_cb),
+            ('RotateRight',  stock.ROTATE_RIGHT, None, None,
+                _("Rotate the view right"),
+                self.rotate_cb),
+            ('MirrorHorizontal', stock.MIRROR_HORIZONTAL, None, None,
+                _("Mirror: flip the view left to right"),
+                self.mirror_horizontal_cb),
+            ('MirrorVertical', stock.MIRROR_VERTICAL, None, None,
+                _("Flip the view upside-down"),
+                self.mirror_vertical_cb),
             ('SoloLayer',    None, _('Layer Solo'), 'Home', None, self.solo_layer_cb), # TODO: make toggle action
             ('ToggleAbove',  None, _('Hide Layers Above Current'), 'End', None, self.toggle_layers_above_cb), # TODO: make toggle action
 
-            ('BlendMode',    None, _('Blend Mode')),
-            ('BlendModeNormal', None, _('Normal'), 'n', None, self.blend_mode_normal_cb),
-            ('BlendModeEraser', None, _('Eraser'), 'e', None, self.blend_mode_eraser_cb),
-            ('BlendModeLockAlpha', None, _('Lock alpha channel'), '<shift>l', None, self.blend_mode_lock_alpha_cb),
+            ('BlendMode',    stock.BRUSH_BLEND_MODES),
         ]
-        ag = self.action_group = gtk.ActionGroup('DocumentActions')
+        self.action_group = gtk.ActionGroup('DocumentActions')
+        ag = self.action_group
         ag.add_actions(actions)
 
+        self.model.command_stack_observers.append(self.update_command_stack_toolitems)
+        self.update_command_stack_toolitems(self.model.command_stack)
+
         toggle_actions = [
-            # name, stock id, label, accelerator, tooltip, callback, default toggle status
             ('PrintInputs', None, _('Print Brush Input Values to Console'), None, None, self.print_inputs_cb),
             ('VisualizeRendering', None, _('Visualize Rendering'), None, None, self.visualize_rendering_cb),
             ('NoDoubleBuffereing', None, _('Disable GTK Double Buffering'), None, None, self.no_double_buffering_cb),
+
             ]
         ag.add_toggle_actions(toggle_actions)
+        # Keyboard handling
+        #for action in self.action_group.list_actions():
+        #    self.app.kbm.takeover_action(action)
+        #self.app.ui_manager.insert_action_group(ag, -1)
 
     def init_context_actions(self):
         ag = self.action_group
@@ -224,7 +247,7 @@ class Document(object):
 
     def paste_cb(self, action):
         cb = gtk.Clipboard()
-        def callback(clipboard, pixbuf, trash):
+        def callback(clipboard, pixbuf, junk):
             if not pixbuf:
                 print 'The clipboard doeas not contain any image to paste!'
                 return
@@ -625,30 +648,12 @@ class Document(object):
         # real-world tool that you're dipping into a palette, or modifying
         # using the sliders.
 
-    def blend_mode_normal_cb(self, action):
-        bm = self.app.brushmodifier
-        if bm.eraser_mode.active:
-            bm.eraser_mode.leave()
-        if bm.lock_alpha.active:
-            bm.lock_alpha.leave()
-
-    def blend_mode_eraser_cb(self, action):
-        self.app.brushmodifier.eraser_mode.toggle(action)
-
-    def blend_mode_lock_alpha_cb(self, action):
-        bm = self.app.brushmodifier
-        if bm.eraser_mode.active:
-            bm.eraser_mode.leave()
-
-        b = self.app.brush
-        
-        if not bm.lock_alpha.active and b.get_base_value('lock_alpha') > 0.9:
-            # brush using lock_alpha setting, but we are not in lock_alpha mode
-            # (FIXME: hackish to handle this case here)
-            b.reset_setting('lock_alpha')
-            return
-
-        bm.lock_alpha.toggle(action)
+    def update_command_stack_toolitems(self, stack):
+        ag = self.action_group
+        undo_action = ag.get_action("Undo")
+        undo_action.set_sensitive(len(stack.undo_stack) > 0)
+        redo_action = ag.get_action("Redo")
+        redo_action.set_sensitive(len(stack.redo_stack) > 0)
 
     def frame_changed_cb(self):
         self.tdw.queue_draw()

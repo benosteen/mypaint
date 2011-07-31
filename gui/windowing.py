@@ -49,11 +49,10 @@ def window_factory(role, layout_manager, app):
     module = __import__(role.lower(), globals(), locals(), [])
     if hasattr(module, "ToolWidget"):
         widget = module.ToolWidget(app)
-        title = widget.tool_widget_title
         connids = []
         connid = widget.connect("map", on_tool_widget_map, app, role, connids)
         connids.append(connid)
-        return (widget, title)
+        return (widget, widget.stock_id)
     else:
         window = module.Window(app)
         return (window, )
@@ -100,7 +99,7 @@ class SubWindow (gtk.Window, AppWindowWithSavedPosition):
     Most SubWindows don't accept keyboard input, but if your subclass requires
     it, pass key_input to the constructor.
     """
-    
+
     def __init__(self, app, key_input=False):
         gtk.Window.__init__(self, type=gtk.WINDOW_TOPLEVEL)
         AppWindowWithSavedPosition.__init__(self)
@@ -122,7 +121,7 @@ class SubWindow (gtk.Window, AppWindowWithSavedPosition):
         # Win32 is responsive to the following: keeps the utility
         # window above the main window in fullscreen.
         widget.set_transient_for(self.app.drawWindow)
-    
+
     def show_all(self):
         pos = self.pre_hide_pos
         gtk.Window.show_all(self)
@@ -132,7 +131,7 @@ class SubWindow (gtk.Window, AppWindowWithSavedPosition):
         # handler as show_all(), immediately after. Wiring it in to
         # a map-event or show event handler won't do. Workaround for
         # https://bugs.launchpad.net/ubuntu/+source/compiz/+bug/155101
-    
+
     def hide(self):
         self.pre_hide_pos = self.get_position()
         gtk.Window.hide(self)

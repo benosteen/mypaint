@@ -84,7 +84,6 @@ def paint(gui):
     events = loadtxt('painting30sec.dat.gz')
     events = list(events)
     yield start_measurement
-    t0 = time()
     t_old = 0.0
     t_last_redraw = 0.0
     for t, x, y, pressure in events:
@@ -344,7 +343,7 @@ if __name__ == '__main__':
                     fname = '%s_%s_%d.pstats' % (options.profile, t, i)
                 args[3] = fname
             child = subprocess.Popen(args, stdout=subprocess.PIPE)
-            output, trash = child.communicate()
+            output, junk = child.communicate()
             if child.returncode != 0:
                 print 'FAILED'
                 break
