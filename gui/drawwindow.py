@@ -767,7 +767,11 @@ class Window (windowing.MainWindow, layout.MainWindow):
         gimp_path = os.path.join(self.app.filehandler.get_gimp_prefix(), "palettes")
         dialog = self.app.filehandler.get_open_dialog(start_in_folder=gimp_path,
                                                   file_filters = file_filters)
+<<<<<<< HEAD
         try:
+=======
+        try:                                                                                                         
+>>>>>>> 1433136bfb115424ccf7ad12e970abee36fa991b
             if dialog.run() == gtk.RESPONSE_OK:
                 dialog.hide()
                 filename = dialog.get_filename().decode('utf-8')
